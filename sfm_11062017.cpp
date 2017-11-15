@@ -90,19 +90,21 @@ int main()
 		keypoints2_sort.push_back(keypoints2[good_matches[i].trainIdx]);
 	}
 
-	Mat_<float> frame1(2, n);
-	Mat_<float> frame2(2, n);
+	vector<Point2f> frame1(n);
+	vector<Point2f> frame2(n);
 	for (int i = 0; i < n; i++)
 	{
 		// cout << "keypoints1_sort " << keypoints1_sort[i].pt<< ' ';
 		// cout << "keypoints2_sort " << keypoints2_sort[i].pt<< endl;
-		frame1(0,i) = keypoints1_sort[i].pt.x;
-		frame1(1,i) = keypoints1_sort[i].pt.y;
-		frame2(0,i) = keypoints2_sort[i].pt.x;
-		frame2(1,i) = keypoints2_sort[i].pt.y;
+		frame1[i] = Point2f((float)keypoints1_sort[i].pt.x, (float)keypoints1_sort[i].pt.y);
+		frame2[i] = Point2f((float)keypoints2_sort[i].pt.x, (float)keypoints2_sort[i].pt.y);
+		// frame1(0,i) = keypoints1_sort[i].pt.x;
+		// frame1(1,i) = keypoints1_sort[i].pt.y;
+		// frame2(0,i) = keypoints2_sort[i].pt.x;
+		// frame2(1,i) = keypoints2_sort[i].pt.y;
 	}
-	cout << "frame1 " << frame1<< endl << endl;
-	cout << "frame2 " << frame2<< endl << endl;
+	cout << "frame1 " << frame1[0] << endl << endl;
+	cout << "frame2 " << frame2[0] << endl << endl;
 	//-- Draw matches
 	Mat img_matches;
     drawMatches( im1_undistort, keypoints1, im2_undistort, keypoints2, good_matches, img_matches, 
@@ -112,35 +114,37 @@ int main()
     imshow( "Good Matches", img_matches );
 
     //Reconstructing 3D points
-    vector<Mat> points2d_match, Rs, ts, points3d_match;
+    Mat K = cameraMatrix;
+    Mat F = findFundamentalMat(frame1, frame2, FM_RANSAC, 0.1, 0.99);
+	Mat E = K.t() * F * K; 
 
-	points2d_match.push_back(Mat(frame1));
-	points2d_match.push_back(Mat(frame2));
-	// cout << "points2d_match " << points2d_match[1] << endl;
+	cout << "F" << F << endl;
+	cout << "E" << E << endl;
 
-	Mat F, E, F_norm;
-	sfm::normalizedEightPointSolver(frame1, frame2, F);
-	cout << "F " << F << endl;
-	sfm::essentialFromFundamental(F, cameraMatrix, cameraMatrix, E);
-	cout << "E " << E << endl;
-	sfm::normalizeFundamental(F, F_norm);
-	cout << "F_norm " << F_norm << endl;
+	SVD svd(E);
+	Matx33d W(0,-1,0,   //HZ 9.13
+	      1,0,0,
+	      0,0,1);
+	Matx33d Winv(0,1,0,
+	     -1,0,0,
+	     0,0,1);
+	Mat R = svd.u * Mat(W) * svd.vt; //HZ 9.19
+	Mat t = svd.u.col(2); //u3
+	Matx34d P1 = Matx34d(1.0, 0.0, 0.0, 0.0,
+			 0.0, 1.0, 0.0, 0.0,
+			 0.0, 0.0, 1.0, 0.0);
+	Matx34d P2 = Matx34d(R.at<double>(0,0),    R.at<double>(0,1), R.at<double>(0,2), t.at<double>(0),
+	         R.at<double>(1,0),    R.at<double>(1,1), R.at<double>(1,2), t.at<double>(1),
+	         R.at<double>(2,0),    R.at<double>(2,1), R.at<double>(2,2), t.at<double>(2));
+	cout << "R" << R<< endl;
+	cout << "t" << t << endl;
+	cout << "P1" << P1 << endl;
+	cout << "P2" << P2 << endl;
 
-
-
-
-	// cout << "size " << points2d_match.size() << endl;
- //    sfm::reconstruct(points2d_match, Rs, ts, cameraMatrix, points3d_match, true);
- //    cout << "points3d " << points3d_match.size() << endl;
- //    cout << "size " << points2d_match.size() << endl;
- //    cout << "Rs " << Rs.size() << endl;
-    cout << "cameraMatrix " << cameraMatrix << endl;
-
-    // cout << "3D points:" << points3d.size() << endl;
-
-
-
-
+	//----Triangulate points
+	Mat points4D;
+	triangulatePoints(P1, P2, frame1, frame2, points4D);
+	cout << "points4D" << points4D << endl;
 
     //Time end
 	auto end = std::chrono::system_clock::now();
